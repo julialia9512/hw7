@@ -10,12 +10,22 @@ import webapp2
 # Reads json description of the board and provides simple interface.
 class Game:
 	# Takes json or a board directly.
-	def __init__(self, body=None, board=None):
-                if body:
-		        game = json.loads(body)
-                        self._board = game["board"]
-                else:
-                        self._board = board
+	def __init__(self, body=None, board=None, score=None):
+	    if body:
+	    	game = json.loads(body)
+	        self._board = game["board"]
+			# game["score"] = [[30,-12,0,-1,-1,0,-12,30],
+			# 				[-12,-15,-3,-3,-3,-3,-15,-12],
+			# 				[0,-3,0,-1,-1,0,-3,0],
+			# 				[-1,-3,-1,-1,-1,-1,-3,-1],
+			# 				[-1,-3,-1,-1,-1,-1,-3,-1],
+			# 				[0,-3,0,-1,-1,0,-3,0],
+			# 				[-12,-15,-3,-3,-3,-3,-15,-12],
+			# 				[30,-12,0,-1,-1,0,-12,30]]
+			# self._score = game["score"]
+	    else:
+	        self._board = board
+			# self._score = score
 
 	# Returns piece on the board.
 	# 0 for no pieces, 1 for player 1, 2 for player 2.
@@ -27,19 +37,27 @@ class Game:
 	def Next(self):
 		return self._board["Next"]
 
+	def Score(self, x, y):
+		return self._score[x][y]
 	# Returns the array of valid moves for next player.
 	# Each move is a dict
 	#   "Where": [x,y]
 	#   "As": player number
 	def ValidMoves(self):
-                moves = []
-                for y in xrange(1,9):
-                        for x in xrange(1,9):
-                                move = {"Where": [x,y],
-                                        "As": self.Next()}
-                                if self.NextBoardPosition(move):
-                                        moves.append(move)
-                return moves
+        moves = []
+        for y in xrange(1,9):
+            for x in xrange(1,9):
+                move = {"Where": [x,y],
+                        "As": self.Next(),
+						"Score": self.Score(x,y)}
+                if self.NextBoardPosition(move):
+                    moves.append(move)
+        return moves
+
+	def MaxScoreMove(self,pieces):
+		best_piece = max(pieces, key= lambda data: data["Score"])
+        return best_piece
+
 
 	# Helper function of NextBoardPosition.  It looks towards
 	# (delta_x, delta_y) direction for one of our own pieces and
@@ -55,32 +73,30 @@ class Game:
 			flip_list.append([look_x, look_y])
 			look_x += delta_x
 			look_y += delta_y
-		if Pos(new_board, look_x, look_y) == player and len(flip_list) > 0:
-                        # there's a continuous line of our opponents
-                        # pieces between our own pieces at
-                        # [look_x,look_y] and the newly placed one at
-                        # [x,y], making it a legal move.
-			SetPos(new_board, x, y, player)
+		if Pos(pieces, look_x, look_y) == player and len(flip_list) > 0:
+			# There is a continuous line of the opponent's pieces between the player's piece at [look_x,look_y]
+			# and the newly placed one at [x,y], making it a legal move.
+			SetPos(pieces, x, y, player)
 			for flip_move in flip_list:
 				flip_x = flip_move[0]
 				flip_y = flip_move[1]
-				SetPos(new_board, flip_x, flip_y, player)
-                        return True
-                return False
+				SetPos(pieces, flip_x, flip_y, player)
+			return True
+		return False
 
 	# Takes a move dict and return the new Game state after that move.
 	# Returns None if the move itself is invalid.
 	def NextBoardPosition(self, move):
 		x = move["Where"][0]
 		y = move["Where"][1]
-                if self.Pos(x, y) != 0:
-                        # x,y is already occupied.
-                        return None
+        if self.Pos(x, y) != 0:
+                # x,y is already occupied.
+                return None
 		new_board = copy.deepcopy(self._board)
-                pieces = new_board["Pieces"]
+            pieces = new_board["Pieces"]
 
 		if not (self.__UpdateBoardDirection(pieces, x, y, 1, 0)
-                        | self.__UpdateBoardDirection(pieces, x, y, 0, 1)
+                | self.__UpdateBoardDirection(pieces, x, y, 0, 1)
 		        | self.__UpdateBoardDirection(pieces, x, y, -1, 0)
 		        | self.__UpdateBoardDirection(pieces, x, y, 0, -1)
 		        | self.__UpdateBoardDirection(pieces, x, y, 1, 1)
@@ -88,10 +104,10 @@ class Game:
 		        | self.__UpdateBoardDirection(pieces, x, y, 1, -1)
 		        | self.__UpdateBoardDirection(pieces, x, y, -1, -1)):
                         # Nothing was captured. Move is invalid.
-                        return None
-                
+            return None
+
                 # Something was captured. Move is valid.
-                new_board["Next"] = 3 - self.Next()
+            new_board["Next"] = 3 - self.Next()
 		return Game(board=new_board)
 
 # Returns piece on the board.
@@ -131,17 +147,17 @@ class MainHandler(webapp2.RequestHandler):
     # here for testing.
     def get(self):
         if not self.request.get('json'):
-          self.response.write("""
+			self.response.write("""
 <body><form method=get>
 Paste JSON here:<p/><textarea name=json cols=80 rows=24></textarea>
 <p/><input type=submit>
 </form>
 </body>
 """)
-          return
+        	return
         else:
-          g = Game(self.request.get('json'))
-          self.pickMove(g)
+         	g = Game(self.request.get('json'))
+        	self.pickMove(g)
 
     def post(self):
     	# Reads JSON representation of the board and store as the object.
@@ -161,8 +177,11 @@ Paste JSON here:<p/><textarea name=json cols=80 rows=24></textarea>
                 # TO STEP STUDENTS:
                 # You'll probably want to change how this works, to do something
                 # more clever than just picking a random move.
-	    	move = random.choice(valid_moves)
-    		self.response.write(PrettyMove(move))
+				# valid_moves.
+			best_move = MaxScoreMove(valid_moves)
+	    	# move = random.choice(valid_moves)
+			if best_move:
+    			self.response.write(PrettyMove(best_move))
 
 app = webapp2.WSGIApplication([
     ('/', MainHandler)
